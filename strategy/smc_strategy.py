@@ -351,13 +351,11 @@ class SMCStrategyFinal:
         """
         確認價格是從高點/低點回撤到 OB（而非追高/殺低）
 
-        SMC 核心邏輯：
-        - 做多：價格需要先離開 OB 區域（創高），然後回撤到 OB → 進場
-        - 做空：價格需要先離開 OB 區域（創低），然後反彈到 OB → 進場
+        v2.0 更新：增加「首次觸及 OB」模式，在強勢趨勢中允許順勢進場
 
-        核心概念：OB 是「回撤區域」，不是「突破進場區域」
-        - 正確：價格突破 OB → 回撤到 OB → 進場順勢交易
-        - 錯誤：價格一路上漲/下跌進入 OB → 追高/殺低
+        SMC 核心邏輯：
+        - 模式 1（回撤進場）：價格先離開 OB → 回撤到 OB → 進場
+        - 模式 2（首次觸及）：價格首次進入 OB 區域，且 OB 是新形成的
 
         Args:
             df_1h: 1H K線數據
@@ -367,12 +365,15 @@ class SMCStrategyFinal:
             direction: 'long' 或 'short'
 
         Returns:
-            True 如果確認是回撤進場（非追高殺低）
+            True 如果確認是有效進場機會
         """
-        # 回看週期（用於尋找近期高低點）
+        # 回看週期
         pullback_lookback = int(self.params.get('pullback_lookback', 20))
-        # 最小回撤比例（價格必須從高點回撤至少這個比例才算有效回撤）
         min_pullback_pct = float(self.params.get('min_pullback_pct', 0.3))
+        # 新增：允許首次觸及 OB 進場
+        allow_first_touch = bool(self.params.get('allow_first_touch_ob', True))
+        # 新增：首次觸及需要的最小 K 線動量
+        first_touch_momentum = float(self.params.get('first_touch_momentum', 0.01))
 
         if idx < pullback_lookback:
             return False
@@ -380,82 +381,66 @@ class SMCStrategyFinal:
         current_price = df_1h['c'].iloc[idx]
         current_low = df_1h['l'].iloc[idx]
         current_high = df_1h['h'].iloc[idx]
+        current_open = df_1h['o'].iloc[idx]
 
-        # 獲取回看期間的數據（不包含當前 K 線）
         lookback_start = max(0, idx - pullback_lookback)
         lookback_data = df_1h.iloc[lookback_start:idx]
 
         if direction == 'long':
-            # === 做多回撤確認 ===
-            # SMC 做多邏輯：價格先向上突破 OB → 回撤到 OB → 進場做多
-
-            # 1. 找到回看期間的最高點
+            # === 做多 ===
             recent_high = lookback_data['h'].max()
-            high_idx = lookback_data['h'].idxmax()
 
-            # 2. 【關鍵】價格必須曾經在 OB 上方（證明已突破）
-            #    如果最高點從未超過 OB 頂部，表示價格一路上漲進入 OB = 追高
-            if recent_high <= ob_top:
-                # 價格從未超過 OB 頂部 → 這是追高，不是回撤
-                return False
-
-            # 3. 確認當前價格已回撤到 OB 區域
-            #    最低價必須觸及或低於 OB 頂部
-            if current_low > ob_top:
-                # 還沒回撤到 OB 區域
-                return False
-
-            # 4. 計算回撤幅度
-            # 從高點到 OB 底部的總距離
-            total_distance = recent_high - ob_bottom
-            if total_distance <= 0:
-                return False
-
-            # 從高點到當前最低點的回撤距離
-            pullback_distance = recent_high - current_low
-            pullback_ratio = pullback_distance / total_distance
-
-            # 5. 確認回撤幅度足夠（至少回撤到總距離的 30%）
-            if pullback_ratio >= min_pullback_pct:
-                # 額外確認：當前收盤價在 OB 區域內或上方（顯示有買盤支撐）
-                if current_price >= ob_bottom:
+            # 模式 1：標準回撤進場
+            if recent_high > ob_top:
+                if current_low > ob_top:
+                    return False
+                total_distance = recent_high - ob_bottom
+                if total_distance <= 0:
+                    return False
+                pullback_distance = recent_high - current_low
+                pullback_ratio = pullback_distance / total_distance
+                if pullback_ratio >= min_pullback_pct and current_price >= ob_bottom:
                     return True
+
+            # 模式 2：首次觸及 OB（強勢趨勢中）
+            if allow_first_touch:
+                # 當前 K 線是陽線且有一定動量
+                candle_momentum = (current_price - current_open) / current_open if current_open > 0 else 0
+                if candle_momentum >= first_touch_momentum:
+                    # 價格從下方首次進入 OB 區域
+                    if current_low <= ob_top and current_price >= ob_bottom:
+                        # 確認之前價格在 OB 下方
+                        recent_closes = lookback_data['c'].tail(5)
+                        if len(recent_closes) > 0 and (recent_closes < ob_bottom).any():
+                            return True
 
         else:  # short
-            # === 做空回撤確認 ===
-            # SMC 做空邏輯：價格先向下突破 OB → 反彈到 OB → 進場做空
-
-            # 1. 找到回看期間的最低點
+            # === 做空 ===
             recent_low = lookback_data['l'].min()
-            low_idx = lookback_data['l'].idxmin()
 
-            # 2. 【關鍵】價格必須曾經在 OB 下方（證明已跌破）
-            #    如果最低點從未低於 OB 底部，表示價格一路下跌進入 OB = 殺低
-            if recent_low >= ob_bottom:
-                # 價格從未低於 OB 底部 → 這是殺低，不是回撤
-                return False
-
-            # 3. 確認當前價格已反彈到 OB 區域
-            #    最高價必須觸及或高於 OB 底部
-            if current_high < ob_bottom:
-                # 還沒反彈到 OB 區域
-                return False
-
-            # 4. 計算反彈幅度
-            # 從 OB 頂部到最低點的總距離
-            total_distance = ob_top - recent_low
-            if total_distance <= 0:
-                return False
-
-            # 從最低點到當前最高點的反彈距離
-            pullback_distance = current_high - recent_low
-            pullback_ratio = pullback_distance / total_distance
-
-            # 5. 確認反彈幅度足夠
-            if pullback_ratio >= min_pullback_pct:
-                # 額外確認：當前收盤價在 OB 區域內或下方（顯示有賣壓）
-                if current_price <= ob_top:
+            # 模式 1：標準回撤進場
+            if recent_low < ob_bottom:
+                if current_high < ob_bottom:
+                    return False
+                total_distance = ob_top - recent_low
+                if total_distance <= 0:
+                    return False
+                pullback_distance = current_high - recent_low
+                pullback_ratio = pullback_distance / total_distance
+                if pullback_ratio >= min_pullback_pct and current_price <= ob_top:
                     return True
+
+            # 模式 2：首次觸及 OB（強勢下跌趨勢中）
+            if allow_first_touch:
+                # 當前 K 線是陰線且有一定動量
+                candle_momentum = (current_open - current_price) / current_open if current_open > 0 else 0
+                if candle_momentum >= first_touch_momentum:
+                    # 價格從上方首次進入 OB 區域
+                    if current_high >= ob_bottom and current_price <= ob_top:
+                        # 確認之前價格在 OB 上方
+                        recent_closes = lookback_data['c'].tail(5)
+                        if len(recent_closes) > 0 and (recent_closes > ob_top).any():
+                            return True
 
         return False
 

@@ -107,13 +107,13 @@ STRATEGY_PARAMS = {
     'strategy_version': 'v2.0',
 
     # 市場結構過濾
-    'enable_trend_filter': True,         # 啟用趨勢過濾（EMA90 vs EMA200）
+    'enable_trend_filter': False,        # [優化] 關閉趨勢過濾，增加進場機會
     'enable_structure_filter': True,     # 啟用市場結構過濾
     'min_structure_move_pct': 0.02,      # 最小結構移動百分比 2%
 
     # Order Block 質量過濾
-    'ob_quality_threshold': 50,          # OB 質量分數門檻（0-100）
-    'ob_volume_percentile': 0.70,        # 成交量要求：≥平均的70%
+    'ob_quality_threshold': 45,          # [優化] 降低 OB 門檻 50 -> 45
+    'ob_volume_percentile': 0.70,        # 成交量要求
 
     # RSI 過濾
     'enable_rsi_filter': True,
@@ -130,7 +130,7 @@ STRATEGY_PARAMS = {
     'stop_loss_buffer_pct': 0.08,        # 止損緩衝 8%
 
     # 止盈設置
-    'risk_reward_ratio': 2.5,            # 風險報酬比 1:2.5
+    'risk_reward_ratio': 3.5,            # [優化] 風險報酬比 1:3.5
 
     # 移動保本機制
     'enable_breakeven': True,
@@ -144,7 +144,11 @@ STRATEGY_PARAMS = {
     # 回撤確認（防止追高殺低）
     'enable_pullback_confirmation': True,
     'pullback_lookback': 20,
-    'min_pullback_pct': 0.3,             # 最小回撤比例 30%
+    'min_pullback_pct': 0.25,            # [優化] 降低回撤要求 0.3 -> 0.25
+
+    # 首次觸及 OB 進場
+    'allow_first_touch_ob': False,
+    'first_touch_momentum': 0.008,
 }
 
 

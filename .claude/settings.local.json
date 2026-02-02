@@ -10,7 +10,9 @@
       "Bash(chcp:*)",
       "Bash(set PYTHONIOENCODING=utf-8:*)",
       "Bash(tree:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(move \"f:\\\\saved data\\\\個人作品\\\\自動交易\\\\SMC - 帶圖表版\\\\optimizer.py\" \"f:\\\\saved data\\\\個人作品\\\\自動交易\\\\SMC - 帶圖表版\\\\tools\"\" && move \"f:saved data個人作品自動交易SMC - 帶圖表版test_strategy.py\" \"f:saved data個人作品自動交易SMC - 帶圖表版tools\"\")",
+      "Bash(move \"f:\\\\saved data\\\\個人作品\\\\自動交易\\\\SMC - 帶圖表版\\\\smart_optimizer.py\" \"f:\\\\saved data\\\\個人作品\\\\自動交易\\\\SMC - 帶圖表版\\\\tools\"\")"
     ]
   }
 }
