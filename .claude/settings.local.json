@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(python -c:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(cmd /c \"chcp 65001 >nul && set PYTHONIOENCODING=utf-8 && python live_trading/smc_chart.py\")",
+      "Bash(ls:*)",
+      "Bash(chcp:*)",
+      "Bash(set PYTHONIOENCODING=utf-8:*)",
+      "Bash(tree:*)",
+      "Bash(wc:*)"
+    ]
+  }
+}

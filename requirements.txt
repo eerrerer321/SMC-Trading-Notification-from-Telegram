@@ -1,0 +1,18 @@
+# SMC ETH 交易通知系統依賴套件
+
+# 核心依賴
+pandas>=1.5.0
+numpy>=1.21.0
+
+# 交易所 API
+ccxt>=4.0.0
+
+# Telegram 通知
+requests>=2.28.0
+
+# 圖表生成
+plotly>=5.18.0
+kaleido>=0.2.1
+
+# 可選：回測視覺化
+matplotlib>=3.5.0

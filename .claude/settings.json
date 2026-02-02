@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(del \"d:\\\\Users\\\\User\\\\Desktop\\\\個人作品\\\\自動交易\\\\SMC - 帶圖表版\\\\nul\")",
+      "Bash(grep:*)"
+    ]
+  }
+}
