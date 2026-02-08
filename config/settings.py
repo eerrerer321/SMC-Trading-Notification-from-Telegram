@@ -122,20 +122,20 @@ STRATEGY_PARAMS = {
     'rsi_period': 14,
 
     # 進場確認（1H）
-    'entry_candle_body_ratio': 0.6,      # K 線實體比例 ≥60%
-    'entry_volume_threshold': 0.70,      # 成交量門檻：≥平均的70%
+    'entry_candle_body_ratio': 0.5,      # [優化] K 線實體比例 ≥50%（原 60%）
+    'entry_volume_threshold': 0.50,      # [優化] 成交量門檻：≥平均的50%（原 70%）
 
     # 止損設置
     'stop_loss_lookback': 10,            # 止損回看週期
     'stop_loss_buffer_pct': 0.08,        # 止損緩衝 8%
 
     # 止盈設置
-    'risk_reward_ratio': 3.5,            # [優化] 風險報酬比 1:3.5
+    'risk_reward_ratio': 4.5,            # [優化] 風險報酬比 1:4.5（原 3.5）
 
     # 移動保本機制
     'enable_breakeven': True,
-    'breakeven_trigger_r': 1.5,          # 到達 1.5R 時觸發
-    'breakeven_profit_pct': 0.005,       # 移動到 +0.5% 利潤位置
+    'breakeven_trigger_r': 2.5,          # [優化] 到達 2.5R 時觸發（原 1.5）
+    'breakeven_profit_pct': 0.003,       # [優化] 移動到 +0.3% 利潤位置（原 0.5%）
 
     # 倉位管理
     'max_open_trades': 10,
@@ -144,11 +144,15 @@ STRATEGY_PARAMS = {
     # 回撤確認（防止追高殺低）
     'enable_pullback_confirmation': True,
     'pullback_lookback': 20,
-    'min_pullback_pct': 0.25,            # [優化] 降低回撤要求 0.3 -> 0.25
+    'min_pullback_pct': 0.20,            # [優化] 降低回撤要求 0.25 -> 0.20
 
     # 首次觸及 OB 進場
     'allow_first_touch_ob': False,
     'first_touch_momentum': 0.008,
+
+    # 即時監控：信號時效控制
+    'max_signal_age_bars': 2,            # 只掃描最近 N 根 1H K線產生信號（防止回溯信號）
+    'max_price_deviation_pct': 0.01,     # 價格偏離超過 2% 時標記為「已偏離」
 }
 
 

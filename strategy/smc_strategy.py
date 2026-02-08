@@ -45,6 +45,11 @@ class SMCStrategyFinal:
         """
         4H时间周期：识别关键的结构位（过滤小波动）
         min_move_pct: 最小结构移动百分比（默认2%）
+
+        注意：只使用向後看的條件（已確認的歷史數據），
+        不使用未來數據，消除前瞻偏差 (Look-ahead Bias)。
+        - Swing High: 檢查「價格從前低漲到此高點」的幅度
+        - Swing Low: 檢查「價格從前高跌到此低點」的幅度
         """
         df = df.copy()
         df['key_swing_high'] = np.nan
@@ -54,31 +59,25 @@ class SMCStrategyFinal:
             if not pd.isna(df['swing_high'].iloc[i]):
                 current_high = df['swing_high'].iloc[i]
 
+                # 只向後看：價格從前低漲到此高點的幅度
                 start_idx = max(0, i - 10)
                 prev_low = df['l'].iloc[start_idx:i].min() if i > 0 else current_high
 
-                end_idx = min(len(df), i + 11)
-                next_low = df['l'].iloc[i+1:end_idx].min() if i < len(df)-1 else current_high
-
                 move_up = (current_high - prev_low) / prev_low if prev_low > 0 else 0
-                move_down = (current_high - next_low) / current_high if current_high > 0 else 0
 
-                if move_up >= min_move_pct or move_down >= min_move_pct:
+                if move_up >= min_move_pct:
                     df.loc[df.index[i], 'key_swing_high'] = current_high
 
             if not pd.isna(df['swing_low'].iloc[i]):
                 current_low = df['swing_low'].iloc[i]
 
+                # 只向後看：價格從前高跌到此低點的幅度
                 start_idx = max(0, i - 10)
                 prev_high = df['h'].iloc[start_idx:i].max() if i > 0 else current_low
 
-                end_idx = min(len(df), i + 11)
-                next_high = df['h'].iloc[i+1:end_idx].max() if i < len(df)-1 else current_low
-
                 move_down = (prev_high - current_low) / prev_high if prev_high > 0 else 0
-                move_up = (next_high - current_low) / current_low if current_low > 0 else 0
 
-                if move_down >= min_move_pct or move_up >= min_move_pct:
+                if move_down >= min_move_pct:
                     df.loc[df.index[i], 'key_swing_low'] = current_low
 
         return df
@@ -525,7 +524,8 @@ class SMCStrategyFinal:
             return entry_price - reward
 
     # ========== 主要交易逻辑 ==========
-    def generate_signals_mtf(self, df_15m: pd.DataFrame, df_4h_with_smc: pd.DataFrame) -> pd.DataFrame:
+    def generate_signals_mtf(self, df_15m: pd.DataFrame, df_4h_with_smc: pd.DataFrame,
+                             signal_lookback: Optional[int] = None) -> pd.DataFrame:
         """
         多時間框架信號生成
 
@@ -623,7 +623,15 @@ class SMCStrategyFinal:
         signal_cooldown_bars = int(self.params.get('signal_cooldown_bars', 0))
         last_signal_bar_by_ob: Dict[str, int] = {}
 
-        for i in range(50, len(df_1h)):
+        # 即時監控模式：限制信號掃描範圍，只掃描最近 N 根 K 線
+        # 回測模式（signal_lookback=None）：掃描所有 K 線
+        if signal_lookback is not None and signal_lookback > 0:
+            scan_start = max(50, len(df_1h) - signal_lookback)
+            print(f"  [即時模式] 只掃描最近 {signal_lookback} 根 1H K線 (index {scan_start}~{len(df_1h)-1})")
+        else:
+            scan_start = 50
+
+        for i in range(scan_start, len(df_1h)):
             current_1h = df_1h.iloc[i]
             current_time = df_1h.index[i]
 

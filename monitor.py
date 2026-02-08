@@ -226,8 +226,9 @@ class SMCLiveMonitor:
             )
             df_4h = self.strategy.identify_high_quality_ob_4h(df_4h)
 
-            # 生成交易信號（1H）
-            df_1h = self.strategy.generate_signals_mtf(df_15m, df_4h)
+            # 生成交易信號（1H）- 即時模式只掃描最近 N 根 K 線
+            signal_lookback = STRATEGY_PARAMS.get('max_signal_age_bars', 2)
+            df_1h = self.strategy.generate_signals_mtf(df_15m, df_4h, signal_lookback=signal_lookback)
 
             # 檢查最新信號
             latest_signals = df_1h[df_1h['signal'] != 0].tail(5)
@@ -376,11 +377,34 @@ class SMCLiveMonitor:
         structure = signal_bar['structure_4h']
         ob_info = signal_bar['ob_source'] if signal_bar['ob_source'] else ""
 
+        # 取得即時市場價格
+        current_price = self.data_fetcher.get_current_price(SYMBOL)
+
+        # 計算移動止損觸發價和新止損價
+        trigger_r = float(STRATEGY_PARAMS.get('breakeven_trigger_r', 1.5))
+        profit_pct = float(STRATEGY_PARAMS.get('breakeven_profit_pct', 0.005))
+        risk = abs(entry_price - stop_loss)
+
+        if direction == 'long':
+            breakeven_trigger_price = entry_price + (trigger_r * risk)
+            breakeven_new_sl = entry_price * (1.0 + profit_pct)
+        else:
+            breakeven_trigger_price = entry_price - (trigger_r * risk)
+            breakeven_new_sl = entry_price * (1.0 - profit_pct)
+
+        # 計算價格偏離
+        max_deviation_pct = float(STRATEGY_PARAMS.get('max_price_deviation_pct', 0.02))
+        price_deviation_pct = 0.0
+        if current_price is not None:
+            price_deviation_pct = (current_price - entry_price) / entry_price
+
         print(f"\n🔔 發現新 {direction.upper()} 信號！")
         print(f"   時間: {signal_time}")
         print(f"   進場: ${entry_price:,.2f}")
+        print(f"   當前: ${current_price:,.2f}" if current_price else "   當前: N/A")
         print(f"   止損: ${stop_loss:,.2f}")
         print(f"   止盈: ${take_profit:,.2f}")
+        print(f"   移動止損觸發: ${breakeven_trigger_price:,.2f}")
 
         position_id = self._new_position_id(direction)
         self.positions.append(
@@ -402,14 +426,22 @@ class SMCLiveMonitor:
                     price=entry_price, stop_loss=stop_loss, take_profit=take_profit,
                     atr=atr, rsi=rsi, structure=structure,
                     ob_info=f"• Order Block: {ob_info}" if ob_info else "",
-                    position_id=position_id
+                    position_id=position_id,
+                    current_price=current_price,
+                    breakeven_trigger_price=breakeven_trigger_price,
+                    breakeven_new_sl=breakeven_new_sl,
+                    max_deviation_pct=max_deviation_pct,
                 )
             else:
                 self.notifier.notify_short_signal(
                     price=entry_price, stop_loss=stop_loss, take_profit=take_profit,
                     atr=atr, rsi=rsi, structure=structure,
                     ob_info=f"• Order Block: {ob_info}" if ob_info else "",
-                    position_id=position_id
+                    position_id=position_id,
+                    current_price=current_price,
+                    breakeven_trigger_price=breakeven_trigger_price,
+                    breakeven_new_sl=breakeven_new_sl,
+                    max_deviation_pct=max_deviation_pct,
                 )
 
     def check_and_send_daily_report(self) -> None:

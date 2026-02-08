@@ -86,12 +86,41 @@ class TelegramNotifier:
     def notify_long_signal(self, price: float, stop_loss: float,
                           take_profit: float, atr: float, rsi: float,
                           structure: str, ob_info: str = "",
-                          position_id: Optional[str] = None) -> bool:
+                          position_id: Optional[str] = None,
+                          current_price: Optional[float] = None,
+                          breakeven_trigger_price: Optional[float] = None,
+                          breakeven_new_sl: Optional[float] = None,
+                          max_deviation_pct: float = 0.02) -> bool:
         """發送做多信號通知"""
 
         risk_reward = abs((take_profit - price) / (price - stop_loss))
 
         pos_line = f"• 倉位ID: {position_id}" if position_id else ""
+
+        # 即時價格與偏離資訊
+        price_section = ""
+        if current_price is not None:
+            deviation_pct = (current_price - price) / price * 100
+            deviation_abs = current_price - price
+            if abs(deviation_pct) > max_deviation_pct * 100:
+                price_section = f"""
+🔔 <b>即時價格</b>
+• 當前市價: ${current_price:,.2f}
+• ⚠️ 偏離信號價: {deviation_pct:+.2f}% (${deviation_abs:+,.2f})
+• ❗ 價格已大幅偏離，請謹慎評估是否進場"""
+            else:
+                price_section = f"""
+🔔 <b>即時價格</b>
+• 當前市價: ${current_price:,.2f}
+• 偏離信號價: {deviation_pct:+.2f}% (${deviation_abs:+,.2f})"""
+
+        # 移動止損資訊
+        breakeven_section = ""
+        if breakeven_trigger_price is not None and breakeven_new_sl is not None:
+            breakeven_section = f"""
+🧲 <b>移動止損計劃</b>
+• 觸發價格: ${breakeven_trigger_price:,.2f} (+{(breakeven_trigger_price-price)/price*100:.2f}%)
+• 觸發後止損移至: ${breakeven_new_sl:,.2f} (+{(breakeven_new_sl-price)/price*100:.2f}%)"""
 
         message = f"""
 🟢 <b>SMC 做多信號</b> 🟢
@@ -99,8 +128,9 @@ class TelegramNotifier:
 📊 <b>基本資訊</b>
 • 交易對: ETHUSDT
 {pos_line}
-• 價格: ${price:,.2f}
+• 信號價: ${price:,.2f}
 • 時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{price_section}
 
 📈 <b>技術分析</b>
 • 市場結構: {structure}
@@ -113,6 +143,7 @@ class TelegramNotifier:
 • 止損價: ${stop_loss:,.2f} (-{(price-stop_loss)/price*100:.2f}%)
 • 止盈價: ${take_profit:,.2f} (+{(take_profit-price)/price*100:.2f}%)
 • 風險報酬比: 1:{risk_reward:.2f}
+{breakeven_section}
 
 ⚠️ <b>風險提示</b>
 請確認市場環境後再進場！
@@ -146,12 +177,41 @@ class TelegramNotifier:
     def notify_short_signal(self, price: float, stop_loss: float,
                            take_profit: float, atr: float, rsi: float,
                            structure: str, ob_info: str = "",
-                           position_id: Optional[str] = None) -> bool:
+                           position_id: Optional[str] = None,
+                           current_price: Optional[float] = None,
+                           breakeven_trigger_price: Optional[float] = None,
+                           breakeven_new_sl: Optional[float] = None,
+                           max_deviation_pct: float = 0.02) -> bool:
         """發送做空信號通知"""
 
         risk_reward = abs((price - take_profit) / (stop_loss - price))
 
         pos_line = f"• 倉位ID: {position_id}" if position_id else ""
+
+        # 即時價格與偏離資訊
+        price_section = ""
+        if current_price is not None:
+            deviation_pct = (current_price - price) / price * 100
+            deviation_abs = current_price - price
+            if abs(deviation_pct) > max_deviation_pct * 100:
+                price_section = f"""
+🔔 <b>即時價格</b>
+• 當前市價: ${current_price:,.2f}
+• ⚠️ 偏離信號價: {deviation_pct:+.2f}% (${deviation_abs:+,.2f})
+• ❗ 價格已大幅偏離，請謹慎評估是否進場"""
+            else:
+                price_section = f"""
+🔔 <b>即時價格</b>
+• 當前市價: ${current_price:,.2f}
+• 偏離信號價: {deviation_pct:+.2f}% (${deviation_abs:+,.2f})"""
+
+        # 移動止損資訊
+        breakeven_section = ""
+        if breakeven_trigger_price is not None and breakeven_new_sl is not None:
+            breakeven_section = f"""
+🧲 <b>移動止損計劃</b>
+• 觸發價格: ${breakeven_trigger_price:,.2f} (-{(price-breakeven_trigger_price)/price*100:.2f}%)
+• 觸發後止損移至: ${breakeven_new_sl:,.2f} (-{(price-breakeven_new_sl)/price*100:.2f}%)"""
 
         message = f"""
 🔴 <b>SMC 做空信號</b> 🔴
@@ -159,8 +219,9 @@ class TelegramNotifier:
 📊 <b>基本資訊</b>
 • 交易對: ETHUSDT
 {pos_line}
-• 價格: ${price:,.2f}
+• 信號價: ${price:,.2f}
 • 時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{price_section}
 
 📉 <b>技術分析</b>
 • 市場結構: {structure}
@@ -173,6 +234,7 @@ class TelegramNotifier:
 • 止損價: ${stop_loss:,.2f} (+{(stop_loss-price)/price*100:.2f}%)
 • 止盈價: ${take_profit:,.2f} (-{(price-take_profit)/price*100:.2f}%)
 • 風險報酬比: 1:{risk_reward:.2f}
+{breakeven_section}
 
 ⚠️ <b>風險提示</b>
 請確認市場環境後再進場！

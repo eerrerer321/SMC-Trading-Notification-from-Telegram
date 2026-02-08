@@ -19,6 +19,10 @@ class SMCIndicators:
 
         Swing High: 中間的高點比左右都高
         Swing Low: 中間的低點比左右都低
+
+        注意：擺動點放在「確認位置」(i + strength)，而非實際擺動位置 (i)。
+        因為實際交易中，需要右側 strength 根 K 線收盤後才能確認擺動點。
+        這消除了前瞻偏差 (Look-ahead Bias)，讓回測結果更接近實盤。
         """
         df = df.copy()
         strength = self.params['swing_strength']
@@ -37,7 +41,9 @@ class SMCIndicators:
                     break
 
             if is_swing_high:
-                df.loc[df.index[i], 'swing_high'] = df['h'].iloc[i]
+                # 擺動點放在確認位置 (i + strength)，價格仍是 i 的高點
+                confirmed_idx = i + strength
+                df.loc[df.index[confirmed_idx], 'swing_high'] = df['h'].iloc[i]
 
             # Swing Low: 中間低點比前後都低
             is_swing_low = True
@@ -48,7 +54,8 @@ class SMCIndicators:
                     break
 
             if is_swing_low:
-                df.loc[df.index[i], 'swing_low'] = df['l'].iloc[i]
+                confirmed_idx = i + strength
+                df.loc[df.index[confirmed_idx], 'swing_low'] = df['l'].iloc[i]
 
         return df
 
