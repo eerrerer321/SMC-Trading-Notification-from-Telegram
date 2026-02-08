@@ -4,6 +4,7 @@
 
 import sys
 import os
+import io
 import time
 import pandas as pd
 from dataclasses import dataclass
@@ -11,6 +12,9 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 # 添加路徑
+if sys.stdout.encoding is None or 'utf' not in sys.stdout.encoding.lower():
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 # 導入配置
@@ -81,6 +85,8 @@ class SMCLiveMonitor:
         self.last_signal_time = None
         self.is_first_run = True
         self.last_daily_report_date = None
+        self.sent_signal_keys = set()
+        self.max_signal_key_cache = 3000
 
         # 註冊 Telegram 指令
         if self.notifier:
@@ -230,27 +236,36 @@ class SMCLiveMonitor:
             signal_lookback = STRATEGY_PARAMS.get('max_signal_age_bars', 2)
             df_1h = self.strategy.generate_signals_mtf(df_15m, df_4h, signal_lookback=signal_lookback)
 
-            # 檢查最新信號
-            latest_signals = df_1h[df_1h['signal'] != 0].tail(5)
+            # 檢查最新信號（同一輪可推送多筆，避免漏訊號）
+            latest_signals = df_1h[df_1h['signal'] != 0].tail(10)
+            current_price = self.data_fetcher.get_current_price(SYMBOL)
 
-            if len(latest_signals) > 0:
-                latest = latest_signals.iloc[-1]
-                signal_time = latest_signals.index[-1]
-
-                if self.is_first_run:
-                    self.last_signal_time = signal_time
-                    print(f"  ℹ️  初始化：已記錄最後信號時間 {signal_time}")
-                elif signal_time > self.last_signal_time:
-                    self.last_signal_time = signal_time
-                    self.send_signal_notification(latest, signal_time, df_1h)
+            new_signal_rows = latest_signals
+            if self.last_signal_time is not None:
+                new_signal_rows = latest_signals[latest_signals.index > self.last_signal_time]
 
             if self.is_first_run:
-                self.is_first_run = False
-                if len(latest_signals) == 0:
+                if len(latest_signals) > 0:
+                    self.last_signal_time = latest_signals.index[-1]
+                    print(f"  ℹ️  初始化：已記錄最後信號時間 {self.last_signal_time}")
+                else:
                     print(f"  ℹ️  初始化：無歷史信號")
+                self.is_first_run = False
+            elif len(new_signal_rows) > 0:
+                max_signals_per_cycle = int(STRATEGY_PARAMS.get('max_signals_per_cycle', 3))
+                notify_rows = new_signal_rows.sort_index().tail(max_signals_per_cycle)
 
-            # 獲取當前價格和市場狀態
-            current_price = self.data_fetcher.get_current_price(SYMBOL)
+                for signal_time, signal_row in notify_rows.iterrows():
+                    self.send_signal_notification(
+                        signal_row,
+                        signal_time,
+                        df_1h,
+                        current_price=current_price
+                    )
+
+                self.last_signal_time = new_signal_rows.index[-1]
+
+            # 獲取當前市場狀態
             latest_4h = df_4h.iloc[-1]
             structure = latest_4h['structure']
 
@@ -258,7 +273,10 @@ class SMCLiveMonitor:
                 self.update_positions(current_price)
 
             print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 監控正常")
-            print(f"  價格: ${current_price:,.2f}")
+            if current_price is not None:
+                print(f"  價格: ${current_price:,.2f}")
+            else:
+                print("  價格: N/A")
             print(f"  4H 結構: {structure}")
             print(f"  最近信號數: {len(latest_signals)}")
 
@@ -273,6 +291,76 @@ class SMCLiveMonitor:
         pid = f"{prefix}{self.next_position_seq:04d}"
         self.next_position_seq += 1
         return pid
+
+    def _build_signal_key(self, signal_bar, signal_time) -> str:
+        """建立信號去重 key。"""
+        direction = 'long' if signal_bar.get('signal', 0) == 1 else 'short'
+        ob_source = str(signal_bar.get('ob_source') or '')
+        entry_price = float(signal_bar.get('entry_price') or 0.0)
+        ts = pd.Timestamp(signal_time).isoformat()
+        return f"{ts}|{direction}|{ob_source}|{entry_price:.2f}"
+
+    def _cleanup_signal_key_cache(self) -> None:
+        """限制去重快取大小，避免長時間運行無限增長。"""
+        if len(self.sent_signal_keys) <= self.max_signal_key_cache:
+            return
+        sorted_keys = sorted(self.sent_signal_keys)
+        self.sent_signal_keys = set(sorted_keys[-self.max_signal_key_cache:])
+
+    def _validate_signal_for_notify(self, signal_bar, signal_time, current_price: Optional[float]) -> tuple:
+        """
+        通知前過濾：
+        - 重複訊號
+        - 訊號過舊
+        - RR 太低
+        - 當前價偏離過大
+        - 同方向持倉過多
+        Returns:
+            (ok, reason, rr, max_deviation_pct)
+        """
+        direction = 'long' if signal_bar.get('signal', 0) == 1 else 'short'
+        entry_price = float(signal_bar.get('entry_price') or 0.0)
+        stop_loss = float(signal_bar.get('stop_loss') or 0.0)
+        take_profit = float(signal_bar.get('take_profit') or 0.0)
+
+        if pd.isna(entry_price) or pd.isna(stop_loss) or pd.isna(take_profit):
+            return False, "nan price fields", 0.0, 0.0
+
+        if entry_price <= 0 or stop_loss <= 0 or take_profit <= 0:
+            return False, "invalid price fields", 0.0, 0.0
+
+        risk = abs(entry_price - stop_loss)
+        reward = abs(take_profit - entry_price)
+        rr = (reward / risk) if risk > 0 else 0.0
+        min_rr = float(STRATEGY_PARAMS.get('min_notify_rr', 0.0))
+        if rr < min_rr:
+            return False, f"RR<{min_rr:.2f}", rr, 0.0
+
+        signal_key = self._build_signal_key(signal_bar, signal_time)
+        if signal_key in self.sent_signal_keys:
+            return False, "duplicate signal", rr, 0.0
+
+        max_positions_per_side = int(STRATEGY_PARAMS.get('max_positions_per_side', 5))
+        side_count = sum(1 for p in self.positions if p.side == direction)
+        if side_count >= max_positions_per_side:
+            return False, f"{direction} positions limit reached", rr, 0.0
+
+        signal_ts = pd.Timestamp(signal_time)
+        if signal_ts.tzinfo is not None:
+            signal_ts = signal_ts.tz_convert(None)
+        age_minutes = (datetime.utcnow() - signal_ts.to_pydatetime()).total_seconds() / 60.0
+        max_signal_age_minutes = int(STRATEGY_PARAMS.get('max_signal_age_minutes', 150))
+        if age_minutes > max_signal_age_minutes:
+            return False, f"signal too old ({age_minutes:.0f}m)", rr, 0.0
+
+        max_deviation_pct = float(STRATEGY_PARAMS.get('max_price_deviation_pct', 0.02))
+        skip_on_large_deviation = bool(STRATEGY_PARAMS.get('notify_skip_on_large_deviation', True))
+        if current_price is not None and entry_price > 0:
+            deviation_pct = abs((current_price - entry_price) / entry_price)
+            if skip_on_large_deviation and deviation_pct > max_deviation_pct:
+                return False, f"price deviation {deviation_pct*100:.2f}%>{max_deviation_pct*100:.2f}%", rr, max_deviation_pct
+
+        return True, "", rr, max_deviation_pct
 
     def update_positions(self, current_price: float) -> None:
         """更新持倉狀態（止損/止盈/移動保本）"""
@@ -365,25 +453,36 @@ class SMCLiveMonitor:
                                     reason=f"到達 {trigger_r}R，移動停損到 -{profit_pct*100:.2f}%"
                                 )
 
-    def send_signal_notification(self, signal_bar, signal_time, df_1h):
-        """發送信號通知"""
+    def send_signal_notification(self, signal_bar, signal_time, df_1h,
+                                 current_price: Optional[float] = None) -> bool:
+        """發送信號通知（含品質過濾與去重）。"""
         direction = 'long' if signal_bar['signal'] == 1 else 'short'
-        entry_price = signal_bar['entry_price']
-        stop_loss = signal_bar['stop_loss']
-        take_profit = signal_bar['take_profit']
+        entry_price = float(signal_bar['entry_price'])
+        stop_loss = float(signal_bar['stop_loss'])
+        take_profit = float(signal_bar['take_profit'])
+
+        if current_price is None:
+            current_price = self.data_fetcher.get_current_price(SYMBOL)
+
+        ok, reason, rr, max_deviation_pct = self._validate_signal_for_notify(
+            signal_bar, signal_time, current_price
+        )
+        if not ok:
+            print(f"  ⏭️  略過 {direction.upper()} 信號 {signal_time}: {reason}")
+            return False
 
         rsi = signal_bar['rsi'] if not pd.isna(signal_bar['rsi']) else 50
         atr = signal_bar['atr'] if not pd.isna(signal_bar['atr']) else 0
         structure = signal_bar['structure_4h']
         ob_info = signal_bar['ob_source'] if signal_bar['ob_source'] else ""
 
-        # 取得即時市場價格
-        current_price = self.data_fetcher.get_current_price(SYMBOL)
-
         # 計算移動止損觸發價和新止損價
         trigger_r = float(STRATEGY_PARAMS.get('breakeven_trigger_r', 1.5))
         profit_pct = float(STRATEGY_PARAMS.get('breakeven_profit_pct', 0.005))
         risk = abs(entry_price - stop_loss)
+        if risk <= 0:
+            print(f"  ⏭️  略過 {direction.upper()} 信號 {signal_time}: invalid risk")
+            return False
 
         if direction == 'long':
             breakeven_trigger_price = entry_price + (trigger_r * risk)
@@ -392,18 +491,13 @@ class SMCLiveMonitor:
             breakeven_trigger_price = entry_price - (trigger_r * risk)
             breakeven_new_sl = entry_price * (1.0 - profit_pct)
 
-        # 計算價格偏離
-        max_deviation_pct = float(STRATEGY_PARAMS.get('max_price_deviation_pct', 0.02))
-        price_deviation_pct = 0.0
-        if current_price is not None:
-            price_deviation_pct = (current_price - entry_price) / entry_price
-
         print(f"\n🔔 發現新 {direction.upper()} 信號！")
         print(f"   時間: {signal_time}")
         print(f"   進場: ${entry_price:,.2f}")
         print(f"   當前: ${current_price:,.2f}" if current_price else "   當前: N/A")
         print(f"   止損: ${stop_loss:,.2f}")
         print(f"   止盈: ${take_profit:,.2f}")
+        print(f"   RR: {rr:.2f}")
         print(f"   移動止損觸發: ${breakeven_trigger_price:,.2f}")
 
         position_id = self._new_position_id(direction)
@@ -412,13 +506,17 @@ class SMCLiveMonitor:
                 position_id=position_id,
                 side=direction,
                 entry_time=signal_time.to_pydatetime() if hasattr(signal_time, 'to_pydatetime') else datetime.now(),
-                entry_price=float(entry_price),
-                stop_loss=float(stop_loss),
-                take_profit=float(take_profit),
+                entry_price=entry_price,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
                 breakeven_moved=False,
-                original_stop_loss=float(stop_loss),
+                original_stop_loss=stop_loss,
             )
         )
+
+        signal_key = self._build_signal_key(signal_bar, signal_time)
+        self.sent_signal_keys.add(signal_key)
+        self._cleanup_signal_key_cache()
 
         if self.notifier and NOTIFY_ON_SIGNAL:
             if direction == 'long':
@@ -443,6 +541,8 @@ class SMCLiveMonitor:
                     breakeven_new_sl=breakeven_new_sl,
                     max_deviation_pct=max_deviation_pct,
                 )
+
+        return True
 
     def check_and_send_daily_report(self) -> None:
         """檢查並發送每日狀態報告（早上 8 點）"""

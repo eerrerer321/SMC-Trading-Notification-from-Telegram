@@ -549,8 +549,9 @@ class TelegramNotifier:
             return False
 
     def _polling_loop(self) -> None:
-        """Polling 迴圈，在背景執行緒中運行"""
+        """Polling 迴圈，在背景執行緒中運行（含指數退避）"""
         print("🔄 開始 Telegram 指令監聽...")
+        consecutive_errors = 0
 
         while self._polling_active:
             try:
@@ -571,13 +572,23 @@ class TelegramNotifier:
                             if update_id > self._last_update_id:
                                 self._last_update_id = update_id
                                 self._process_update(update)
+                    # 成功後重置錯誤計數
+                    if consecutive_errors > 0:
+                        print("✅ Telegram 連線已恢復")
+                    consecutive_errors = 0
 
             except requests.exceptions.Timeout:
                 # Long polling timeout，正常現象
                 pass
             except Exception as e:
-                print(f"⚠️ Polling 錯誤: {e}")
-                time.sleep(5)  # 發生錯誤時等待一下再重試
+                consecutive_errors += 1
+                # 指數退避：5s → 10s → 20s → 40s → 最多 60s
+                wait_time = min(5 * (2 ** (consecutive_errors - 1)), 60)
+                # 只在首次和每 10 次錯誤時印出，避免刷屏
+                if consecutive_errors == 1 or consecutive_errors % 10 == 0:
+                    print(f"⚠️ Polling 連線失敗（第 {consecutive_errors} 次）: {e}")
+                    print(f"   下次重試等待 {wait_time}s")
+                time.sleep(wait_time)
 
     def start_polling(self) -> None:
         """開始監聽 Telegram 指令（在背景執行緒中）"""

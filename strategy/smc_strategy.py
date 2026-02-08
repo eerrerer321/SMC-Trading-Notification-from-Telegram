@@ -271,8 +271,16 @@ class SMCStrategyFinal:
         # 计算平均成交量
         avg_volume = df_1h['v'].rolling(20).mean().iloc[idx]
 
-        body_ratio_threshold = float(self.params.get('entry_candle_body_ratio', 0.6))
-        volume_threshold = float(self.params.get('entry_volume_threshold', 0.70))
+        long_body_ratio_threshold = float(self.params.get('entry_candle_body_ratio', 0.6))
+        long_volume_threshold = float(self.params.get('entry_volume_threshold', 0.70))
+        short_body_ratio_threshold = float(self.params.get(
+            'entry_candle_body_ratio_short',
+            self.params.get('entry_candle_body_ratio', 0.6)
+        ))
+        short_volume_threshold = float(self.params.get(
+            'entry_volume_threshold_short',
+            self.params.get('entry_volume_threshold', 0.70)
+        ))
 
         if direction == 'long':
             # 当前K线必须是强烈的阳线
@@ -283,17 +291,18 @@ class SMCStrategyFinal:
                 return False
 
             body_ratio = body / candle_range
-            if body_ratio < body_ratio_threshold:
+            if body_ratio < long_body_ratio_threshold:
                 return False
 
-            if not pd.isna(avg_volume) and current['v'] < avg_volume * volume_threshold:
+            if not pd.isna(avg_volume) and current['v'] < avg_volume * long_volume_threshold:
                 return False
 
             # 前一根K线应该显示买盘力量
             has_support = False
             if prev1['c'] > prev1['o']:  # 前一根是阳线
                 has_support = True
-            elif (prev1['o'] - prev1['l']) / (prev1['h'] - prev1['l']) >= 0.6:  # 锤子线
+            elif (prev1['h'] - prev1['l']) > 0 and \
+                    (prev1['o'] - prev1['l']) / (prev1['h'] - prev1['l']) >= 0.6:  # 锤子线
                 has_support = True
 
             return has_support
@@ -306,17 +315,18 @@ class SMCStrategyFinal:
                 return False
 
             body_ratio = body / candle_range
-            if body_ratio < 0.6:
+            if body_ratio < short_body_ratio_threshold:
                 return False
 
             # 成交量確認：≥平均的 70%
-            if not pd.isna(avg_volume) and current['v'] < avg_volume * 0.7:
+            if not pd.isna(avg_volume) and current['v'] < avg_volume * short_volume_threshold:
                 return False
 
             has_resistance = False
             if prev1['c'] < prev1['o']:  # 前一根是阴线
                 has_resistance = True
-            elif (prev1['h'] - prev1['o']) / (prev1['h'] - prev1['l']) >= 0.6:  # 射击之星
+            elif (prev1['h'] - prev1['l']) > 0 and \
+                    (prev1['h'] - prev1['o']) / (prev1['h'] - prev1['l']) >= 0.6:  # 射击之星
                 has_resistance = True
 
             return has_resistance

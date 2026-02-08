@@ -15,29 +15,29 @@
 4. **風險管理**: 自動計算止損/止盈，智能移動保本
 5. **僅通知模式**: 不自動交易，人工確認後再進場
 
-### 回測績效參考（ETHUSDT 2020-2025，已修復前瞻偏差）
+### 通知策略績效參考（ETHUSDT 2020-2025，參數重優化）
 
 **訓練集（2023-2025）- 用於參數優化**
 
 | 年份 | 報酬率 | 交易數 | 勝率 | MDD | PF |
 |------|--------|--------|------|-----|-----|
-| 2023 | **+64.53%** | 79 | 31.6% | 22.6% | 1.62 |
-| 2024 | **+50.77%** | 94 | 37.2% | 33.0% | 1.45 |
-| 2025 | **+311.39%** | 104 | 41.3% | 36.1% | 2.06 |
-| **合計** | **+426.69%** | | avg 36.7% | | avg 1.71 |
+| 2023 | **+61.78%** | 81 | 33.3% | 22.7% | 1.61 |
+| 2024 | **+50.84%** | 88 | 37.5% | 32.7% | 1.49 |
+| 2025 | **+182.11%** | 97 | 40.2% | 32.1% | 1.87 |
+| **合計** | **+294.73%** | | avg 37.0% | | avg 1.66 |
 
 **驗證集（2020-2022）- 未參與優化，檢驗泛化能力**
 
 | 年份 | 報酬率 | 交易數 | 勝率 | MDD | PF |
 |------|--------|--------|------|-----|-----|
-| 2020 | **+291.75%** | 82 | 26.8% | 55.9% | 2.05 |
-| 2021 | **+19.80%** | 128 | 30.5% | 64.2% | 1.17 |
-| 2022 | -36.90% | 113 | 25.7% | 47.9% | 0.90 |
-| **合計** | **+274.65%** | | avg 27.7% | | avg 1.38 |
+| 2020 | **+315.79%** | 83 | 27.7% | 47.2% | 2.09 |
+| 2021 | **+20.09%** | 106 | 28.3% | 57.9% | 1.19 |
+| 2022 | **+6.79%** | 108 | 29.6% | 36.1% | 1.14 |
+| **合計** | **+342.67%** | | avg 28.5% | | avg 1.47 |
 
-**六年總計**: 訓練集 +426.69% / 驗證集 +274.65% / 全部 **+701.34%**
+**六年總計**: 訓練集 +294.73% / 驗證集 +342.67% / 全部 **+637.40%**
 
-> **注意**: 歷史績效不代表未來表現，僅供參考。v2.2 已修復前瞻偏差（Look-ahead Bias），回測結果更接近實盤。策略採高盈虧比（1:4.5）低勝率風格，2022 熊市為唯一虧損年份。
+> **注意**: 歷史績效不代表未來表現，僅供參考。本段為通知策略參數優化後的歷史模擬結果（`output/notify_best_params.json`）。策略採高盈虧比（1:4.5）低勝率風格，2022 已轉為小幅正報酬但仍屬弱勢年份。
 
 ---
 
@@ -57,7 +57,6 @@ SMC - 帶圖表版/
 ├── engine/                    # 引擎
 │   ├── __init__.py
 │   ├── data_fetcher.py        # 數據獲取（CCXT 交易所連接）
-│   └── backtest.py            # 回測引擎
 │
 ├── notification/              # 通知
 │   ├── __init__.py
@@ -67,6 +66,7 @@ SMC - 帶圖表版/
 ├── tools/                     # 開發工具
 │   ├── test_all_years.py      # 全年份回測
 │   ├── find_optimal.py        # 參數優化搜索
+│   ├── optimize_notify_strategy.py  # 通知策略參數優化
 │   └── fetch_historical.py    # 歷史數據抓取
 │
 ├── data/                      # 歷史數據
@@ -238,8 +238,11 @@ STRATEGY_PARAMS = {
     'risk_reward_ratio': 4.5,        # [優化] 風險報酬比 3.5→4.5
     'allow_neutral_market': True,    # 允許中性市場交易
     'enable_pullback_confirmation': True,  # 啟用回測確認
-    'entry_candle_body_ratio': 0.5,  # [優化] K 線實體比例 0.6→0.5
-    'entry_volume_threshold': 0.50,  # [優化] 成交量門檻 0.7→0.5
+    'entry_candle_body_ratio': 0.45,  # [優化] long 實體比例
+    'entry_volume_threshold': 0.55,   # [優化] long 成交量門檻
+    'entry_candle_body_ratio_short': 0.60,  # short 實體比例
+    'entry_volume_threshold_short': 0.60,   # short 成交量門檻
+    'signal_cooldown_bars': 2,        # [優化] 同 OB 信號冷卻
     'breakeven_trigger_r': 2.5,      # [優化] 保本觸發 1.5R→2.5R
     'breakeven_profit_pct': 0.003,   # [優化] 保本後利潤 0.5%→0.3%
     'stop_loss_buffer_pct': 0.08,    # 止損緩衝 8%
@@ -350,6 +353,21 @@ SYMBOL = "BTCUSDT"  # 改為 BTC
 ---
 
 ## 更新日誌
+
+### v2.3 - 2026-02-09
+
+- **Notification strategy re-optimization**:
+  - Added `tools/optimize_notify_strategy.py` (243 combinations, multiprocessing)
+  - Optimization finished in ~44 minutes, output saved to `output/notify_best_params.json`
+- **Performance update (ETHUSDT 2020-2025)**:
+  - Train (2023-2025): **+294.73%**
+  - Validation (2020-2022): **+342.67%**
+  - Total (6 years): **+637.40%**
+- **Updated key parameters**:
+  - `entry_candle_body_ratio`: 0.50 -> **0.45**
+  - `entry_volume_threshold`: 0.50 -> **0.55**
+  - `entry_volume_threshold_short`: 0.70 -> **0.60**
+  - `signal_cooldown_bars`: 1 -> **2**
 
 ### v2.2 - 2026-02-08
 

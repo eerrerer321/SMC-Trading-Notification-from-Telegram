@@ -121,10 +121,11 @@ STRATEGY_PARAMS = {
     'rsi_short_min': 15,                 # 做空：RSI 不低於 15
     'rsi_period': 14,
 
-    # 進場確認（1H）
-    'entry_candle_body_ratio': 0.5,      # [優化] K 線實體比例 ≥50%（原 60%）
-    'entry_volume_threshold': 0.50,      # [優化] 成交量門檻：≥平均的50%（原 70%）
-
+    # Entry confirmation (1H)
+    'entry_candle_body_ratio': 0.45,     # long body ratio threshold (optimized)
+    'entry_volume_threshold': 0.55,      # long volume threshold vs 20MA (optimized)
+    'entry_candle_body_ratio_short': 0.60,  # short body ratio threshold
+    'entry_volume_threshold_short': 0.60,   # short volume threshold vs 20MA (optimized)
     # 止損設置
     'stop_loss_lookback': 10,            # 止損回看週期
     'stop_loss_buffer_pct': 0.08,        # 止損緩衝 8%
@@ -150,9 +151,15 @@ STRATEGY_PARAMS = {
     'allow_first_touch_ob': False,
     'first_touch_momentum': 0.008,
 
-    # 即時監控：信號時效控制
-    'max_signal_age_bars': 2,            # 只掃描最近 N 根 1H K線產生信號（防止回溯信號）
-    'max_price_deviation_pct': 0.01,     # 價格偏離超過 2% 時標記為「已偏離」
+    # Live monitor quality controls
+    'signal_cooldown_bars': 2,           # cooldown per OB (1H bars, optimized)
+    'max_signal_age_bars': 2,            # only scan most recent N 1H bars
+    'max_signal_age_minutes': 150,       # skip notifications older than this
+    'max_price_deviation_pct': 0.01,     # skip if current price deviates too much
+    'notify_skip_on_large_deviation': True,  # enable deviation hard-filter
+    'min_notify_rr': 2.0,                # minimum RR required for notify
+    'max_signals_per_cycle': 3,          # 每輪最多通知幾筆新信號
+    'max_positions_per_side': 5,         # 同方向最多紙上倉位數
 }
 
 

@@ -4,9 +4,14 @@
 
 import ccxt
 import pandas as pd
+import sys
+import io
 import time
 from typing import Optional, Tuple
 from datetime import datetime, timedelta
+
+if sys.stdout.encoding is None or 'utf' not in sys.stdout.encoding.lower():
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 class LiveDataFetcher:
     """实时数据获取器"""
